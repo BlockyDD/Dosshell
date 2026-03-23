@@ -23,6 +23,7 @@ set(HEADERS
     src/pipeline.h
     src/builtins.h
     src/console.h
+    src/dosshell_plugin.h
 )
 
 add_executable(dosshell ${SOURCES} ${HEADERS})

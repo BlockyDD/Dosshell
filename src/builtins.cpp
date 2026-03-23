@@ -1,5 +1,6 @@
 #include "builtins.h"
 #include "shell.h"
+#include "dosshell_plugin.h"
 #include <windows.h>
 #include <aclapi.h>
 #include <iostream>
@@ -48,6 +49,7 @@ void registerAllBuiltins(PipelineEngine& engine) {
     engine.registerBuiltin("time",    Builtins::cmd_time);
     engine.registerBuiltin("date",    Builtins::cmd_date);
     engine.registerBuiltin("load",    Builtins::cmd_load);
+    engine.registerBuiltin("plugin",  Builtins::cmd_plugin);
 }
 
 // ============================================================
@@ -380,7 +382,7 @@ int Builtins::cmd_ver(Shell&, const std::vector<std::string>&) {
 // ============================================================
 // help
 // ============================================================
-int Builtins::cmd_help(Shell&, const std::vector<std::string>& args) {
+int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
     if (args.size() > 1) {
         std::string cmd = args[1];
         std::transform(cmd.begin(), cmd.end(), cmd.begin(),
@@ -409,6 +411,7 @@ int Builtins::cmd_help(Shell&, const std::vector<std::string>& args) {
             {"date",    "Zeigt das aktuelle Datum",         "date"},
             {"exit",    "Beendet Dosshell",                 "exit [code]"},
             {"load",    "Laedt eine .ini-Bibliothek",       "load [name]"},
+            {"plugin",  "Laedt ein C++ DLL-Plugin",         "plugin <name|pfad>"},
         };
 
         for (const auto& e : entries) {
@@ -435,11 +438,26 @@ int Builtins::cmd_help(Shell&, const std::vector<std::string>& args) {
     std::cout << "  ren     - Datei umbenennen               time    - Aktuelle Zeit\n";
     std::cout << "  md      - Verzeichnis erstellen          date    - Aktuelles Datum\n";
     std::cout << "  rd      - Verzeichnis loeschen           exit    - Dosshell beenden\n";
-    std::cout << "  load    - .ini-Bibliothek laden\n\n";
+    std::cout << "  load    - .ini-Bibliothek laden          plugin  - C++ DLL-Plugin laden\n\n";
     std::cout << "Tippe 'help <befehl>' fuer Details.\n";
     std::cout << "Externe Programme werden automatisch gesucht.\n";
     std::cout << "Pipes (|), Umleitung (> >> <) und && werden unterstuetzt.\n";
-    std::cout << "Umgebungsvariablen: %VARNAME%\n\n";
+    std::cout << "Umgebungsvariablen: %VARNAME%\n";
+
+    // Script-Befehle anzeigen
+    const auto& scripts = shell.engine().scriptCommands();
+    if (!scripts.empty()) {
+        std::cout << "\nGeladene Script-Befehle:\n";
+        for (const auto& [name, cmd] : scripts) {
+            if (!cmd.description.empty()) {
+                std::cout << "  " << std::left << std::setw(12) << name
+                          << "- " << cmd.description << "\n";
+            } else {
+                std::cout << "  " << name << "\n";
+            }
+        }
+    }
+    std::cout << "\n";
     return 0;
 }
 
@@ -738,7 +756,7 @@ int Builtins::cmd_load(Shell& shell, const std::vector<std::string>& args) {
         }
     }
 
-    // Datei Zeile fuer Zeile ausfuehren
+    // Datei laden und parsen
     std::ifstream file(filePath);
     if (!file.is_open()) {
         std::cerr << "Dosshell: Kann '" << filePath.string() << "' nicht oeffnen\n";
@@ -747,30 +765,82 @@ int Builtins::cmd_load(Shell& shell, const std::vector<std::string>& args) {
 
     int lineNum = 0;
     int errors = 0;
+    int commandsRegistered = 0;
     std::string line;
+
+    // Aktueller Command-Block (wenn in [command:name] Sektion)
+    ScriptCommand currentCmd;
+    bool inCommandSection = false;
+    std::string lastComment;
 
     while (std::getline(file, line)) {
         lineNum++;
 
         // Trim
         auto start = line.find_first_not_of(" \t");
-        if (start == std::string::npos) continue;
+        if (start == std::string::npos) {
+            // Leere Zeile in Command-Sektion: ignorieren
+            continue;
+        }
         line = line.substr(start);
 
-        // Kommentare ueberspringen
-        if (line[0] == ';' || line[0] == '#') continue;
+        // Kommentar merken (koennte Beschreibung fuer naechsten Command sein)
+        if (line[0] == ';' || line[0] == '#') {
+            if (!inCommandSection) {
+                lastComment = line.substr(1);
+                auto cs = lastComment.find_first_not_of(" \t");
+                if (cs != std::string::npos) lastComment = lastComment.substr(cs);
+            }
+            continue;
+        }
 
-        // Leere Zeilen ueberspringen
         if (line.empty()) continue;
 
-        // Befehl ausfuehren
-        auto cmdLine = Parser::parse(line);
-        int result = shell.engine().execute(shell, cmdLine);
-        if (result != 0) {
-            std::cerr << "Dosshell: Fehler in Zeile " << lineNum
-                      << ": " << line << "\n";
-            errors++;
+        // [command:name] Sektion erkennen
+        if (line[0] == '[') {
+            // Vorherigen Command-Block abschliessen
+            if (inCommandSection && !currentCmd.name.empty() && !currentCmd.lines.empty()) {
+                shell.engine().registerScriptCommand(currentCmd);
+                commandsRegistered++;
+            }
+
+            // Neuen Command-Block pruefen
+            if (line.size() > 9 && line.substr(0, 9) == "[command:" && line.back() == ']') {
+                currentCmd = ScriptCommand{};
+                currentCmd.name = line.substr(9, line.size() - 10);
+                currentCmd.description = lastComment;
+                inCommandSection = true;
+                lastComment.clear();
+            } else {
+                inCommandSection = false;
+            }
+            continue;
         }
+
+        if (inCommandSection) {
+            // Zeile zum aktuellen Command-Block hinzufuegen
+            currentCmd.lines.push_back(line);
+        } else {
+            // Normale Zeile: sofort ausfuehren
+            auto cmdLine = Parser::parse(line);
+            int result = shell.engine().execute(shell, cmdLine);
+            if (result != 0) {
+                std::cerr << "Dosshell: Fehler in Zeile " << lineNum
+                          << ": " << line << "\n";
+                errors++;
+            }
+        }
+    }
+
+    // Letzten Command-Block abschliessen
+    if (inCommandSection && !currentCmd.name.empty() && !currentCmd.lines.empty()) {
+        shell.engine().registerScriptCommand(currentCmd);
+        commandsRegistered++;
+    }
+
+    if (commandsRegistered > 0) {
+        std::cout << commandsRegistered << " Befehl(e) registriert aus '"
+                  << filePath.filename().string() << "'\n";
     }
 
     if (errors > 0) {
@@ -778,5 +848,140 @@ int Builtins::cmd_load(Shell& shell, const std::vector<std::string>& args) {
         return 1;
     }
 
+    return 0;
+}
+
+// ============================================================
+// plugin
+// ============================================================
+
+// Globaler State fuer Plugin-API Callbacks
+static Shell* g_pluginShell = nullptr;
+static std::string g_cwdBuffer;
+
+static void pluginPrint(const char* text) {
+    if (g_pluginShell) {
+        g_pluginShell->console().write(text);
+    }
+}
+
+static int pluginExecute(const char* command) {
+    if (!g_pluginShell) return 1;
+    auto cmdLine = Parser::parse(command);
+    return g_pluginShell->engine().execute(*g_pluginShell, cmdLine);
+}
+
+static const char* pluginGetenv(const char* name) {
+    return std::getenv(name);
+}
+
+static const char* pluginGetcwd() {
+    g_cwdBuffer = fs::current_path().string();
+    return g_cwdBuffer.c_str();
+}
+
+static void pluginRegisterCommand(const char* name, const char* description,
+                                   DosshellCommandFunc func) {
+    if (!g_pluginShell) return;
+
+    // Plugin-Funktion in eine BuiltinFunc wrappen
+    DosshellCommandFunc capturedFunc = func;
+    std::string capturedDesc = description ? description : "";
+
+    g_pluginShell->engine().registerBuiltin(name,
+        [capturedFunc](Shell&, const std::vector<std::string>& args) -> int {
+            // std::vector<std::string> -> argc/argv
+            std::vector<const char*> argv;
+            for (const auto& a : args) argv.push_back(a.c_str());
+            return capturedFunc((int)argv.size(), argv.data());
+        });
+}
+
+int Builtins::cmd_plugin(Shell& shell, const std::vector<std::string>& args) {
+    if (args.size() < 2) {
+        std::cout << "Syntax: plugin <name|pfad>\n";
+        std::cout << "Laedt eine C++ DLL als Plugin.\n";
+        std::cout << "Die DLL muss dosshell_register() exportieren.\n\n";
+
+        // Plugins im .dosshell Verzeichnis auflisten
+        std::string dir = getDosshellDir();
+        if (!dir.empty() && fs::exists(dir)) {
+            std::cout << "Verfuegbare Plugins in " << dir << ":\n";
+            bool found = false;
+            for (const auto& entry : fs::directory_iterator(dir)) {
+                if (entry.path().extension() == ".dll") {
+                    std::cout << "  " << entry.path().stem().string() << "\n";
+                    found = true;
+                }
+            }
+            if (!found) std::cout << "  (keine .dll-Dateien gefunden)\n";
+        }
+        return 0;
+    }
+
+    std::string name = args[1];
+    std::string dir = getDosshellDir();
+    fs::path dllPath;
+
+    // Pfad auflösen
+    if (fs::exists(name)) {
+        dllPath = fs::path(name);
+    } else if (fs::exists(name + ".dll")) {
+        dllPath = fs::path(name + ".dll");
+    } else if (!dir.empty()) {
+        dllPath = fs::path(dir) / (name + ".dll");
+        if (!fs::exists(dllPath)) {
+            dllPath = fs::path(dir) / name;
+        }
+    }
+
+    if (!fs::exists(dllPath)) {
+        std::cerr << "Dosshell: Plugin '" << name << "' nicht gefunden\n";
+        return 1;
+    }
+
+    // Sicherheitspruefung
+    if (!checkFilePermissions(dllPath)) {
+        shell.console().writeColored(
+            "WARNUNG: Die DLL hat unsichere Berechtigungen!\n", Color::Red);
+        shell.console().write("Trotzdem laden? (j/n) ");
+        std::string answer = shell.console().readLine("");
+        if (answer != "j" && answer != "J" && answer != "ja" && answer != "Ja") {
+            std::cout << "Abgebrochen.\n";
+            return 1;
+        }
+    }
+
+    // DLL laden
+    HMODULE hModule = LoadLibraryA(dllPath.string().c_str());
+    if (!hModule) {
+        std::cerr << "Dosshell: Kann DLL nicht laden (Fehler "
+                  << GetLastError() << ")\n";
+        return 1;
+    }
+
+    // Register-Funktion finden
+    auto registerFunc = (DosshellRegisterFunc)GetProcAddress(hModule, "dosshell_register");
+    if (!registerFunc) {
+        std::cerr << "Dosshell: DLL hat keine dosshell_register() Funktion\n";
+        FreeLibrary(hModule);
+        return 1;
+    }
+
+    // Plugin-API aufbauen
+    DosshellPluginAPI api = {};
+    api.api_version = DOSSHELL_API_VERSION;
+    api.register_command = pluginRegisterCommand;
+    api.print = pluginPrint;
+    api.execute = pluginExecute;
+    api.getenv = pluginGetenv;
+    api.getcwd = pluginGetcwd;
+
+    // Plugin registrieren
+    g_pluginShell = &shell;
+    registerFunc(&api);
+    g_pluginShell = nullptr;
+
+    std::cout << "Plugin '" << dllPath.filename().string() << "' geladen.\n";
     return 0;
 }

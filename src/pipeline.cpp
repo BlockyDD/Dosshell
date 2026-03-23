@@ -26,6 +26,59 @@ std::string PipelineEngine::resolveAlias(const std::string& name) const {
     return name;
 }
 
+void PipelineEngine::registerScriptCommand(const ScriptCommand& cmd) {
+    scripts_[normalize(cmd.name)] = cmd;
+}
+
+bool PipelineEngine::isScriptCommand(const std::string& name) const {
+    return scripts_.count(normalize(name)) > 0;
+}
+
+int PipelineEngine::executeScriptCommand(Shell& shell, const std::string& name,
+                                          const std::vector<std::string>& args) {
+    auto it = scripts_.find(normalize(name));
+    if (it == scripts_.end()) return 1;
+
+    const auto& script = it->second;
+    int lastResult = 0;
+
+    for (const auto& line : script.lines) {
+        // Parameter ersetzen: %0=name, %1=erstes Arg, %2=zweites, ...
+        // %*=alle Argumente
+        std::string expanded = line;
+
+        // %* durch alle Argumente ersetzen
+        std::string allArgs;
+        for (size_t i = 1; i < args.size(); i++) {
+            if (i > 1) allArgs += " ";
+            allArgs += args[i];
+        }
+        size_t pos;
+        while ((pos = expanded.find("%*")) != std::string::npos) {
+            expanded.replace(pos, 2, allArgs);
+        }
+
+        // %0-%9 ersetzen
+        for (int p = 9; p >= 0; p--) {
+            std::string placeholder = "%" + std::to_string(p);
+            std::string value;
+            if (p == 0) {
+                value = name;
+            } else if ((size_t)p < args.size()) {
+                value = args[p];
+            }
+            while ((pos = expanded.find(placeholder)) != std::string::npos) {
+                expanded.replace(pos, placeholder.size(), value);
+            }
+        }
+
+        auto cmdLine = Parser::parse(expanded);
+        lastResult = execute(shell, cmdLine);
+    }
+
+    return lastResult;
+}
+
 std::string PipelineEngine::normalize(const std::string& name) {
     std::string lower = name;
     std::transform(lower.begin(), lower.end(), lower.begin(),
@@ -178,6 +231,12 @@ int PipelineEngine::executeCommand(Shell& shell, const Command& cmd,
             _close(origFd);
             SetStdHandle(STD_OUTPUT_HANDLE, origStdout);
         }
+    } else if (scripts_.count(normalizedName)) {
+        // Script-Befehl aus .ini
+        std::vector<std::string> fullArgs;
+        fullArgs.push_back(resolvedName);
+        fullArgs.insert(fullArgs.end(), cmd.args.begin(), cmd.args.end());
+        result = executeScriptCommand(shell, normalizedName, fullArgs);
     } else {
         Command resolvedCmd = cmd;
         resolvedCmd.name = resolvedName;
