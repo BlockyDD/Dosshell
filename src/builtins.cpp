@@ -54,8 +54,6 @@ void registerAllBuiltins(PipelineEngine& engine) {
     engine.registerBuiltin("plugin",  Builtins::cmd_plugin);
     engine.registerBuiltin("call",    Builtins::cmd_call);
     engine.registerBuiltin("pause",   Builtins::cmd_pause);
-    engine.registerBuiltin("calc",    Builtins::cmd_calc);
-    engine.registerBuiltin("input",   Builtins::cmd_input);
 }
 
 // ============================================================
@@ -336,9 +334,79 @@ int Builtins::cmd_rd(Shell&, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// set
+// set (mit /a fuer Mathe und /p fuer Eingabe)
 // ============================================================
-int Builtins::cmd_set(Shell&, const std::vector<std::string>& args) {
+namespace MathParser {
+    static void skipWS(const std::string& s, size_t& p) {
+        while (p < s.size() && std::isspace((unsigned char)s[p])) p++;
+    }
+
+    static double parseExpr(const std::string& s, size_t& p);
+
+    static double parseAtom(const std::string& s, size_t& p) {
+        skipWS(s, p);
+        if (p < s.size() && s[p] == '(') {
+            p++;
+            double val = parseExpr(s, p);
+            skipWS(s, p);
+            if (p < s.size() && s[p] == ')') p++;
+            return val;
+        }
+        bool neg = false;
+        if (p < s.size() && (s[p] == '-' || s[p] == '+')) {
+            neg = (s[p] == '-');
+            p++;
+            skipWS(s, p);
+        }
+        size_t start = p;
+        while (p < s.size() && (std::isdigit((unsigned char)s[p]) || s[p] == '.'))
+            p++;
+        double val = (p > start) ? std::stod(s.substr(start, p - start)) : 0.0;
+        return neg ? -val : val;
+    }
+
+    static double parseMulDiv(const std::string& s, size_t& p) {
+        double left = parseAtom(s, p);
+        while (true) {
+            skipWS(s, p);
+            if (p >= s.size()) break;
+            char op = s[p];
+            if (op != '*' && op != '/' && op != '%') break;
+            p++;
+            double right = parseAtom(s, p);
+            if (op == '*') left *= right;
+            else if (op == '/') left = (right != 0) ? left / right : 0;
+            else left = std::fmod(left, right);
+        }
+        return left;
+    }
+
+    static double parseExpr(const std::string& s, size_t& p) {
+        double left = parseMulDiv(s, p);
+        while (true) {
+            skipWS(s, p);
+            if (p >= s.size()) break;
+            char op = s[p];
+            if (op != '+' && op != '-') break;
+            p++;
+            double right = parseMulDiv(s, p);
+            if (op == '+') left += right;
+            else left -= right;
+        }
+        return left;
+    }
+
+    static std::string format(double result) {
+        std::ostringstream oss;
+        if (result == std::floor(result) && std::abs(result) < 1e15)
+            oss << static_cast<long long>(result);
+        else
+            oss << result;
+        return oss.str();
+    }
+}
+
+int Builtins::cmd_set(Shell& shell, const std::vector<std::string>& args) {
     if (args.size() < 2) {
         LPCH env = GetEnvironmentStringsA();
         if (env) {
@@ -352,6 +420,61 @@ int Builtins::cmd_set(Shell&, const std::vector<std::string>& args) {
         return 0;
     }
 
+    // set /a — Mathe-Ausdruck auswerten
+    if (args[1] == "/a" || args[1] == "/A") {
+        if (args.size() < 3) {
+            std::cerr << "Syntax: set /a <ausdruck>\n";
+            std::cerr << "Beispiel: set /a 3 + 4 * 2\n";
+            return 1;
+        }
+        std::string expr;
+        for (size_t i = 2; i < args.size(); i++) {
+            if (i > 2) expr += " ";
+            expr += args[i];
+        }
+        // Optionale Variablenzuweisung: set /a X=3+4
+        std::string varName = "RESULT";
+        auto eqPos = expr.find('=');
+        if (eqPos != std::string::npos && eqPos > 0 &&
+            std::isalpha((unsigned char)expr[0])) {
+            varName = expr.substr(0, eqPos);
+            expr = expr.substr(eqPos + 1);
+        }
+        size_t pos = 0;
+        double result = MathParser::parseExpr(expr, pos);
+        std::string formatted = MathParser::format(result);
+        std::cout << formatted << "\n";
+        _putenv_s(varName.c_str(), formatted.c_str());
+        return 0;
+    }
+
+    // set /p — Benutzereingabe in Variable
+    if (args[1] == "/p" || args[1] == "/P") {
+        if (args.size() < 3) {
+            std::cerr << "Syntax: set /p VARIABLE=Prompt\n";
+            return 1;
+        }
+        std::string rest;
+        for (size_t i = 2; i < args.size(); i++) {
+            if (i > 2) rest += " ";
+            rest += args[i];
+        }
+        auto eqPos = rest.find('=');
+        std::string varName;
+        std::string prompt;
+        if (eqPos != std::string::npos) {
+            varName = rest.substr(0, eqPos);
+            prompt = rest.substr(eqPos + 1);
+        } else {
+            varName = rest;
+        }
+        if (!prompt.empty()) prompt += " ";
+        std::string value = shell.console().readLine(prompt);
+        _putenv_s(varName.c_str(), value.c_str());
+        return 0;
+    }
+
+    // Normaler set-Befehl
     std::string assignment;
     for (size_t i = 1; i < args.size(); i++) {
         if (i > 1) assignment += " ";
@@ -406,7 +529,7 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
             {"ren",     "Benennt eine Datei um",            "ren <alt> <neu>"},
             {"md",      "Erstellt ein Verzeichnis",         "md <verzeichnis>"},
             {"rd",      "Loescht ein Verzeichnis",          "rd <verzeichnis> [/s]"},
-            {"set",     "Zeigt/setzt Umgebungsvariablen",   "set [name=wert]"},
+            {"set",     "Umgebungsvariablen/Mathe/Eingabe", "set [name=wert] | set /a <expr> | set /p VAR=Prompt"},
             {"ver",     "Zeigt die Version an",             "ver"},
             {"color",   "Setzt Konsolenfarben",             "color <fg> [bg]"},
             {"title",   "Setzt den Fenstertitel",           "title <text>"},
@@ -420,8 +543,6 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
             {"plugin",  "Laedt ein C++ DLL-Plugin",         "plugin <name|pfad>"},
             {"call",    "Fuehrt ein .dssh Script aus",      "call <script.dssh> [argumente...]"},
             {"pause",   "Wartet auf Tastendruck",           "pause"},
-            {"calc",    "Berechnet math. Ausdruecke",       "calc <ausdruck>  (+ - * / % ())"},
-            {"input",   "Liest Eingabe in Variable",        "input <variable> [prompt]"},
         };
 
         for (const auto& e : entries) {
@@ -449,8 +570,7 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
     std::cout << "  md      - Verzeichnis erstellen          date    - Aktuelles Datum\n";
     std::cout << "  rd      - Verzeichnis loeschen           exit    - Dosshell beenden\n";
     std::cout << "  load    - .ini-Bibliothek laden          plugin  - C++ DLL-Plugin laden\n";
-    std::cout << "  call    - .dssh Script ausfuehren        pause   - Auf Taste warten\n";
-    std::cout << "  calc    - Mathematik berechnen           input   - Eingabe in Variable\n\n";
+    std::cout << "  call    - .dssh Script ausfuehren        pause   - Auf Taste warten\n\n";
     std::cout << "Tippe 'help <befehl>' fuer Details.\n";
     std::cout << "Externe Programme werden automatisch gesucht.\n";
     std::cout << ".dssh Scripte koennen direkt aufgerufen werden (wie .bat fuer CMD).\n";
@@ -1043,123 +1163,3 @@ int Builtins::cmd_pause(Shell& shell, const std::vector<std::string>&) {
     return 0;
 }
 
-// ============================================================
-// calc — Mathematische Ausdruecke auswerten
-// ============================================================
-namespace MathParser {
-    static void skipWS(const std::string& s, size_t& p) {
-        while (p < s.size() && std::isspace((unsigned char)s[p])) p++;
-    }
-
-    static double parseExpr(const std::string& s, size_t& p);
-
-    static double parseAtom(const std::string& s, size_t& p) {
-        skipWS(s, p);
-
-        if (p < s.size() && s[p] == '(') {
-            p++;
-            double val = parseExpr(s, p);
-            skipWS(s, p);
-            if (p < s.size() && s[p] == ')') p++;
-            return val;
-        }
-
-        bool neg = false;
-        if (p < s.size() && (s[p] == '-' || s[p] == '+')) {
-            neg = (s[p] == '-');
-            p++;
-            skipWS(s, p);
-        }
-
-        size_t start = p;
-        while (p < s.size() && (std::isdigit((unsigned char)s[p]) || s[p] == '.'))
-            p++;
-
-        double val = (p > start) ? std::stod(s.substr(start, p - start)) : 0.0;
-        return neg ? -val : val;
-    }
-
-    static double parseMulDiv(const std::string& s, size_t& p) {
-        double left = parseAtom(s, p);
-        while (true) {
-            skipWS(s, p);
-            if (p >= s.size()) break;
-            char op = s[p];
-            if (op != '*' && op != '/' && op != '%') break;
-            p++;
-            double right = parseAtom(s, p);
-            if (op == '*') left *= right;
-            else if (op == '/') left = (right != 0) ? left / right : 0;
-            else left = std::fmod(left, right);
-        }
-        return left;
-    }
-
-    static double parseExpr(const std::string& s, size_t& p) {
-        double left = parseMulDiv(s, p);
-        while (true) {
-            skipWS(s, p);
-            if (p >= s.size()) break;
-            char op = s[p];
-            if (op != '+' && op != '-') break;
-            p++;
-            double right = parseMulDiv(s, p);
-            if (op == '+') left += right;
-            else left -= right;
-        }
-        return left;
-    }
-}
-
-int Builtins::cmd_calc(Shell&, const std::vector<std::string>& args) {
-    if (args.size() < 2) {
-        std::cerr << "Syntax: calc <ausdruck>\n";
-        std::cerr << "Beispiel: calc 3 + 4 * 2\n";
-        std::cerr << "Operatoren: + - * / % ()\n";
-        return 1;
-    }
-
-    std::string expr;
-    for (size_t i = 1; i < args.size(); i++) {
-        if (i > 1) expr += " ";
-        expr += args[i];
-    }
-
-    size_t pos = 0;
-    double result = MathParser::parseExpr(expr, pos);
-
-    std::ostringstream oss;
-    if (result == std::floor(result) && std::abs(result) < 1e15) {
-        oss << static_cast<long long>(result);
-    } else {
-        oss << result;
-    }
-
-    std::cout << oss.str() << "\n";
-    _putenv_s("RESULT", oss.str().c_str());
-    return 0;
-}
-
-// ============================================================
-// input — Benutzereingabe in Umgebungsvariable
-// ============================================================
-int Builtins::cmd_input(Shell& shell, const std::vector<std::string>& args) {
-    if (args.size() < 2) {
-        std::cerr << "Syntax: input <variable> [prompt]\n";
-        std::cerr << "Beispiel: input NAME Dein Name: \n";
-        return 1;
-    }
-
-    std::string varName = args[1];
-
-    std::string prompt;
-    for (size_t i = 2; i < args.size(); i++) {
-        if (i > 2) prompt += " ";
-        prompt += args[i];
-    }
-    if (!prompt.empty()) prompt += " ";
-
-    std::string value = shell.console().readLine(prompt);
-    _putenv_s(varName.c_str(), value.c_str());
-    return 0;
-}
