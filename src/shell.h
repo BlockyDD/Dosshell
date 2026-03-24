@@ -19,6 +19,10 @@ public:
     int lastExitCode() const { return lastExitCode_; }
     void setLastExitCode(int code) { lastExitCode_ = code; }
 
+    void setGoto(const std::string& label) { gotoLabel_ = label; }
+    bool hasGoto() const { return !gotoLabel_.empty(); }
+    std::string consumeGoto() { std::string l = gotoLabel_; gotoLabel_.clear(); return l; }
+
     std::string getPrompt() const;
     void setPromptFormat(const std::string& fmt) { promptFormat_ = fmt; }
     const std::string& getPromptFormat() const { return promptFormat_; }
@@ -32,6 +36,7 @@ private:
     bool running_ = true;
     int lastExitCode_ = 0;
     std::string promptFormat_ = "$P$G";
+    std::string gotoLabel_;
 
     void showBanner();
     void autoRegisterDssh();

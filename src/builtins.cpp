@@ -40,6 +40,8 @@ void registerAllBuiltins(PipelineEngine& engine) {
     engine.registerBuiltin("date",    Builtins::cmd_date);
     engine.registerBuiltin("load",    Builtins::cmd_load);
     engine.registerBuiltin("plugin",  Builtins::cmd_plugin);
+    engine.registerBuiltin("if",      Builtins::cmd_if);
+    engine.registerBuiltin("goto",    Builtins::cmd_goto);
     engine.registerBuiltin("call",    Builtins::cmd_call);
 }
 
@@ -172,7 +174,7 @@ int Builtins::cmd_clear(Shell& shell, const std::vector<std::string>&) {
 // ============================================================
 int Builtins::cmd_echo(Shell&, const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cout << "ECHO ist eingeschaltet.\n";
+        std::cout << "\n";
         return 0;
     }
     for (size_t i = 1; i < args.size(); i++) {
@@ -367,6 +369,8 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
             {"time",    "Aktuelle Zeit anzeigen",           "time"},
             {"date",    "Aktuelles Datum anzeigen",         "date"},
             {"exit",    "Dosshell beenden",                 "exit [code]"},
+            {"if",      "Bedingte Ausfuehrung",             "if <a> ==/!=/gt/lt/ge/le <b> <befehl>"},
+            {"goto",    "Sprung zu Label",                  "goto <label>  (Label: :name)"},
             {"call",    ".dssh Script ausfuehren",          "call <script.dssh> [argumente...]"},
             {"load",    ".ini-Bibliothek laden",            "load [name]"},
             {"plugin",  "C++ DLL-Plugin laden",             "plugin <name|pfad>"},
@@ -396,8 +400,8 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
     std::cout << "  mk   Erstellen   ---------        exit   Beenden\n";
     std::cout << "                   set   Variablen  help   Hilfe\n";
     std::cout << "  Scripting        math  Rechnen\n";
-    std::cout << "  ---------\n";
-    std::cout << "  call   .dssh Script\n";
+    std::cout << "  ---------        if    Bedingung\n";
+    std::cout << "  call   .dssh Script    goto  Sprung\n";
     std::cout << "  load   .ini Bibliothek\n";
     std::cout << "  plugin DLL Plugin\n\n";
     std::cout << "Tippe 'help <befehl>' fuer Details.\n";
@@ -1079,6 +1083,78 @@ int Builtins::cmd_input(Shell& shell, const std::vector<std::string>& args) {
     if (!prompt.empty()) prompt += " ";
     std::string value = shell.console().readLine(prompt);
     _putenv_s(varName.c_str(), value.c_str());
+    return 0;
+}
+
+// ============================================================
+// if — Bedingte Ausfuehrung
+// ============================================================
+int Builtins::cmd_if(Shell& shell, const std::vector<std::string>& args) {
+    // if exist FILE COMMAND...
+    // if VAL1 == VAL2 COMMAND...
+    // if VAL1 != VAL2 COMMAND...
+    // if VAL1 gt/lt/ge/le VAL2 COMMAND...
+    if (args.size() < 4) {
+        std::cerr << "Syntax: if <wert1> <op> <wert2> <befehl>\n";
+        std::cerr << "Ops: == != gt lt ge le exist\n";
+        return 1;
+    }
+
+    bool condition = false;
+    size_t cmdStart = 0;
+
+    std::string first = args[1];
+    std::transform(first.begin(), first.end(), first.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+
+    if (first == "exist" && args.size() >= 4) {
+        condition = fs::exists(args[2]);
+        cmdStart = 3;
+    } else if (args.size() >= 5) {
+        std::string op = args[2];
+        std::transform(op.begin(), op.end(), op.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+
+        if (op == "==" || op == "!=") {
+            bool eq = (args[1] == args[3]);
+            condition = (op == "==") ? eq : !eq;
+        } else {
+            try {
+                double a = std::stod(args[1]);
+                double b = std::stod(args[3]);
+                if (op == "gt") condition = a > b;
+                else if (op == "lt") condition = a < b;
+                else if (op == "ge") condition = a >= b;
+                else if (op == "le") condition = a <= b;
+            } catch (...) {
+                condition = false;
+            }
+        }
+        cmdStart = 4;
+    }
+
+    if (condition && cmdStart < args.size()) {
+        std::string cmdStr;
+        for (size_t i = cmdStart; i < args.size(); i++) {
+            if (i > cmdStart) cmdStr += " ";
+            cmdStr += args[i];
+        }
+        auto cmdLine = Parser::parse(cmdStr);
+        return shell.engine().execute(shell, cmdLine);
+    }
+
+    return condition ? 0 : 1;
+}
+
+// ============================================================
+// goto — Sprung zu Label in Script
+// ============================================================
+int Builtins::cmd_goto(Shell& shell, const std::vector<std::string>& args) {
+    if (args.size() < 2) {
+        std::cerr << "Syntax: goto <label>\n";
+        return 1;
+    }
+    shell.setGoto(args[1]);
     return 0;
 }
 

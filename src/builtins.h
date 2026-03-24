@@ -35,6 +35,10 @@ namespace Builtins {
     int cmd_time(Shell& shell, const std::vector<std::string>& args);
     int cmd_date(Shell& shell, const std::vector<std::string>& args);
 
+    // Kontrollfluss
+    int cmd_if(Shell& shell, const std::vector<std::string>& args);
+    int cmd_goto(Shell& shell, const std::vector<std::string>& args);
+
     // Scripting & Erweiterungen
     int cmd_call(Shell& shell, const std::vector<std::string>& args);
     int cmd_load(Shell& shell, const std::vector<std::string>& args);

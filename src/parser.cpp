@@ -1,6 +1,9 @@
 #include "parser.h"
 #include <cctype>
 #include <cstdlib>
+#include <ctime>
+
+static bool sRandomSeeded = false;
 
 std::string Parser::expandVariables(const std::string& input) {
     std::string result;
@@ -10,12 +13,16 @@ std::string Parser::expandVariables(const std::string& input) {
             size_t end = input.find('%', i + 1);
             if (end != std::string::npos && end > i + 1) {
                 std::string varName = input.substr(i + 1, end - i - 1);
-                const char* val = std::getenv(varName.c_str());
-                if (val) {
-                    result += val;
+                if (varName == "RANDOM") {
+                    if (!sRandomSeeded) { srand((unsigned)time(nullptr)); sRandomSeeded = true; }
+                    result += std::to_string(rand() % 32768);
                 } else {
-                    // Unbekannte Variable: Original beibehalten
-                    result += input.substr(i, end - i + 1);
+                    const char* val = std::getenv(varName.c_str());
+                    if (val) {
+                        result += val;
+                    } else {
+                        result += input.substr(i, end - i + 1);
+                    }
                 }
                 i = end + 1;
             } else {

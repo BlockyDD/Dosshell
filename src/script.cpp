@@ -116,6 +116,9 @@ int ScriptRunner::execute(Shell& shell, const std::string& path,
 
         if (line.empty()) continue;
 
+        // Labels: :name — ueberspringen (goto springt hierher)
+        if (line[0] == ':') continue;
+
         // Kommentare: REM, #, ;
         if (line[0] == '#' || line[0] == ';') continue;
         {
@@ -181,6 +184,35 @@ int ScriptRunner::execute(Shell& shell, const std::string& path,
         auto cmdLine = Parser::parse(line);
         lastResult = shell.engine().execute(shell, cmdLine);
         shell.setLastExitCode(lastResult);
+
+        // Goto-Handling: nach Label suchen und dorthin springen
+        if (shell.hasGoto()) {
+            std::string target = shell.consumeGoto();
+            std::string targetLower = target;
+            std::transform(targetLower.begin(), targetLower.end(), targetLower.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            bool found = false;
+            for (size_t j = 0; j < lines.size(); j++) {
+                std::string l = lines[j];
+                auto s = l.find_first_not_of(" \t");
+                if (s == std::string::npos) continue;
+                l = l.substr(s);
+                if (l.empty() || l[0] != ':') continue;
+                std::string label = l.substr(1);
+                auto e = label.find_first_of(" \t");
+                if (e != std::string::npos) label = label.substr(0, e);
+                std::transform(label.begin(), label.end(), label.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (label == targetLower) {
+                    lineIdx = j;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                std::cerr << "Dosshell: Label '" << target << "' nicht gefunden\n";
+            }
+        }
     }
 
     return lastResult;

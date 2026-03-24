@@ -1,0 +1,56 @@
+@echo off
+clear
+color cyan
+echo
+echo   ========================================
+echo        ZAHLENRATEN - Dosshell Spiel
+echo   ========================================
+echo
+color white
+echo   Ich denke an eine Zahl zwischen 1 und 100.
+echo   Du hast 7 Versuche. Viel Glueck!
+echo
+
+; Zufallszahl generieren (1-100)
+math %RANDOM% % 100 + 1
+set ZIEL=%RESULT%
+set RUNDE=1
+
+:runde
+echo   --- Versuch %RUNDE% von 7 ---
+input TIPP   Dein Tipp (1-100):
+
+if %TIPP% == %ZIEL% goto gewonnen
+if %TIPP% gt %ZIEL% echo   Zu hoch!
+if %TIPP% lt %ZIEL% echo   Zu niedrig!
+echo
+
+; Naechste Runde
+math %RUNDE% + 1
+set RUNDE=%RESULT%
+
+if %RUNDE% gt 7 goto verloren
+goto runde
+
+:gewonnen
+echo
+color green
+echo   ************************************
+echo   *  GEWONNEN! Die Zahl war %ZIEL%!
+echo   *  Geschafft in %RUNDE% Versuchen!
+echo   ************************************
+color white
+echo
+pause
+exit /b
+
+:verloren
+echo
+color red
+echo   ************************************
+echo   *  VERLOREN! Die Zahl war %ZIEL%.
+echo   *  Vielleicht naechstes Mal!
+echo   ************************************
+color white
+echo
+pause
