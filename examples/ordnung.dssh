@@ -1,0 +1,82 @@
+@echo off
+echo =============================================
+echo   Dosshell Ordnungsprogramm
+echo   Sortiert Dateien nach Typ in Ordner
+echo =============================================
+echo.
+echo Aktueller Ordner:
+cd
+echo.
+
+; Ordner erstellen
+echo Erstelle Ordner...
+mk Bilder
+mk Dokumente
+mk Musik
+mk Videos
+mk Archive
+mk Programme
+echo.
+
+; Bilder sortieren
+echo [Bilder]
+cmd /c "move *.jpg Bilder\ >nul 2>nul"
+cmd /c "move *.jpeg Bilder\ >nul 2>nul"
+cmd /c "move *.png Bilder\ >nul 2>nul"
+cmd /c "move *.gif Bilder\ >nul 2>nul"
+cmd /c "move *.bmp Bilder\ >nul 2>nul"
+cmd /c "move *.svg Bilder\ >nul 2>nul"
+cmd /c "move *.webp Bilder\ >nul 2>nul"
+cmd /c "move *.ico Bilder\ >nul 2>nul"
+cmd /c "move *.tiff Bilder\ >nul 2>nul"
+
+; Dokumente sortieren
+echo [Dokumente]
+cmd /c "move *.pdf Dokumente\ >nul 2>nul"
+cmd /c "move *.doc Dokumente\ >nul 2>nul"
+cmd /c "move *.docx Dokumente\ >nul 2>nul"
+cmd /c "move *.txt Dokumente\ >nul 2>nul"
+cmd /c "move *.xlsx Dokumente\ >nul 2>nul"
+cmd /c "move *.xls Dokumente\ >nul 2>nul"
+cmd /c "move *.pptx Dokumente\ >nul 2>nul"
+cmd /c "move *.csv Dokumente\ >nul 2>nul"
+cmd /c "move *.rtf Dokumente\ >nul 2>nul"
+cmd /c "move *.odt Dokumente\ >nul 2>nul"
+
+; Musik sortieren
+echo [Musik]
+cmd /c "move *.mp3 Musik\ >nul 2>nul"
+cmd /c "move *.wav Musik\ >nul 2>nul"
+cmd /c "move *.flac Musik\ >nul 2>nul"
+cmd /c "move *.aac Musik\ >nul 2>nul"
+cmd /c "move *.ogg Musik\ >nul 2>nul"
+cmd /c "move *.m4a Musik\ >nul 2>nul"
+cmd /c "move *.wma Musik\ >nul 2>nul"
+
+; Videos sortieren
+echo [Videos]
+cmd /c "move *.mp4 Videos\ >nul 2>nul"
+cmd /c "move *.avi Videos\ >nul 2>nul"
+cmd /c "move *.mkv Videos\ >nul 2>nul"
+cmd /c "move *.mov Videos\ >nul 2>nul"
+cmd /c "move *.wmv Videos\ >nul 2>nul"
+cmd /c "move *.webm Videos\ >nul 2>nul"
+cmd /c "move *.flv Videos\ >nul 2>nul"
+
+; Archive sortieren
+echo [Archive]
+cmd /c "move *.zip Archive\ >nul 2>nul"
+cmd /c "move *.rar Archive\ >nul 2>nul"
+cmd /c "move *.7z Archive\ >nul 2>nul"
+cmd /c "move *.tar Archive\ >nul 2>nul"
+cmd /c "move *.gz Archive\ >nul 2>nul"
+
+; Programme sortieren
+echo [Programme]
+cmd /c "move *.exe Programme\ >nul 2>nul"
+cmd /c "move *.msi Programme\ >nul 2>nul"
+
+echo.
+echo === Fertig! Dateien wurden sortiert. ===
+echo.
+pause
