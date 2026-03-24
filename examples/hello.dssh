@@ -17,7 +17,7 @@ echo Alle Argumente: %*
 ; Systembefehle nutzen
 echo.
 echo Aktuelles Verzeichnis:
-pwd
+cd
 echo.
 date
 time

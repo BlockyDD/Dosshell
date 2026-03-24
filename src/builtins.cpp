@@ -17,49 +17,36 @@
 namespace fs = std::filesystem;
 
 void registerAllBuiltins(PipelineEngine& engine) {
-    engine.registerBuiltin("dir",     Builtins::cmd_dir);
-    engine.registerBuiltin("ls",      Builtins::cmd_dir);
+    engine.registerBuiltin("ls",      Builtins::cmd_ls);
     engine.registerBuiltin("cd",      Builtins::cmd_cd);
-    engine.registerBuiltin("chdir",   Builtins::cmd_cd);
-    engine.registerBuiltin("cls",     Builtins::cmd_cls);
-    engine.registerBuiltin("clear",   Builtins::cmd_cls);
+    engine.registerBuiltin("cat",     Builtins::cmd_cat);
+    engine.registerBuiltin("cp",      Builtins::cmd_cp);
+    engine.registerBuiltin("mv",      Builtins::cmd_mv);
+    engine.registerBuiltin("rm",      Builtins::cmd_rm);
+    engine.registerBuiltin("mk",      Builtins::cmd_mk);
     engine.registerBuiltin("echo",    Builtins::cmd_echo);
-    engine.registerBuiltin("type",    Builtins::cmd_type);
-    engine.registerBuiltin("cat",     Builtins::cmd_type);
-    engine.registerBuiltin("copy",    Builtins::cmd_copy);
-    engine.registerBuiltin("cp",      Builtins::cmd_copy);
-    engine.registerBuiltin("del",     Builtins::cmd_del);
-    engine.registerBuiltin("erase",   Builtins::cmd_del);
-    engine.registerBuiltin("rm",      Builtins::cmd_del);
-    engine.registerBuiltin("ren",     Builtins::cmd_ren);
-    engine.registerBuiltin("rename",  Builtins::cmd_ren);
-    engine.registerBuiltin("mv",      Builtins::cmd_ren);
-    engine.registerBuiltin("md",      Builtins::cmd_md);
-    engine.registerBuiltin("mkdir",   Builtins::cmd_md);
-    engine.registerBuiltin("rd",      Builtins::cmd_rd);
-    engine.registerBuiltin("rmdir",   Builtins::cmd_rd);
+    engine.registerBuiltin("input",   Builtins::cmd_input);
+    engine.registerBuiltin("clear",   Builtins::cmd_clear);
+    engine.registerBuiltin("pause",   Builtins::cmd_pause);
     engine.registerBuiltin("set",     Builtins::cmd_set);
-    engine.registerBuiltin("ver",     Builtins::cmd_ver);
+    engine.registerBuiltin("math",    Builtins::cmd_math);
     engine.registerBuiltin("help",    Builtins::cmd_help);
     engine.registerBuiltin("exit",    Builtins::cmd_exit);
-    engine.registerBuiltin("quit",    Builtins::cmd_exit);
     engine.registerBuiltin("color",   Builtins::cmd_color);
     engine.registerBuiltin("title",   Builtins::cmd_title);
     engine.registerBuiltin("prompt",  Builtins::cmd_prompt);
     engine.registerBuiltin("alias",   Builtins::cmd_alias);
-    engine.registerBuiltin("pwd",     Builtins::cmd_pwd);
     engine.registerBuiltin("time",    Builtins::cmd_time);
     engine.registerBuiltin("date",    Builtins::cmd_date);
     engine.registerBuiltin("load",    Builtins::cmd_load);
     engine.registerBuiltin("plugin",  Builtins::cmd_plugin);
     engine.registerBuiltin("call",    Builtins::cmd_call);
-    engine.registerBuiltin("pause",   Builtins::cmd_pause);
 }
 
 // ============================================================
-// dir
+// ls
 // ============================================================
-int Builtins::cmd_dir(Shell&, const std::vector<std::string>& args) {
+int Builtins::cmd_ls(Shell&, const std::vector<std::string>& args) {
     std::string path = ".";
     bool showAll = false;
     bool wideFormat = false;
@@ -173,9 +160,9 @@ int Builtins::cmd_cd(Shell&, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// cls
+// clear
 // ============================================================
-int Builtins::cmd_cls(Shell& shell, const std::vector<std::string>&) {
+int Builtins::cmd_clear(Shell& shell, const std::vector<std::string>&) {
     shell.console().clear();
     return 0;
 }
@@ -197,11 +184,11 @@ int Builtins::cmd_echo(Shell&, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// type
+// cat
 // ============================================================
-int Builtins::cmd_type(Shell&, const std::vector<std::string>& args) {
+int Builtins::cmd_cat(Shell&, const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cerr << "Syntax: type <datei>\n";
+        std::cerr << "Syntax: cat <datei>\n";
         return 1;
     }
     for (size_t i = 1; i < args.size(); i++) {
@@ -218,11 +205,11 @@ int Builtins::cmd_type(Shell&, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// copy
+// cp
 // ============================================================
-int Builtins::cmd_copy(Shell&, const std::vector<std::string>& args) {
+int Builtins::cmd_cp(Shell&, const std::vector<std::string>& args) {
     if (args.size() < 3) {
-        std::cerr << "Syntax: copy <quelle> <ziel>\n";
+        std::cerr << "Syntax: cp <quelle> <ziel>\n";
         return 1;
     }
     try {
@@ -236,27 +223,37 @@ int Builtins::cmd_copy(Shell&, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// del
+// rm — Dateien und Verzeichnisse loeschen
 // ============================================================
-int Builtins::cmd_del(Shell&, const std::vector<std::string>& args) {
+int Builtins::cmd_rm(Shell&, const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cerr << "Syntax: del <datei>\n";
+        std::cerr << "Syntax: rm <ziel> [-r]\n";
         return 1;
     }
-    bool force = false;
+    bool recursive = false;
+    std::vector<std::string> targets;
     for (size_t i = 1; i < args.size(); i++) {
-        if (args[i] == "/f" || args[i] == "-f") { force = true; continue; }
+        if (args[i] == "-r" || args[i] == "/r" || args[i] == "/s") recursive = true;
+        else targets.push_back(args[i]);
+    }
+    for (const auto& t : targets) {
         try {
-            fs::path target = args[i];
-            if (!fs::exists(target)) {
-                std::cerr << "Dosshell: '" << args[i] << "' nicht gefunden\n";
+            fs::path p = t;
+            if (!fs::exists(p)) {
+                std::cerr << "Dosshell: '" << t << "' nicht gefunden\n";
                 return 1;
             }
-            if (fs::is_directory(target) && !force) {
-                std::cerr << "Dosshell: '" << args[i] << "' ist ein Verzeichnis. Verwende 'rd'.\n";
-                return 1;
+            if (fs::is_directory(p)) {
+                if (!recursive && !fs::is_empty(p)) {
+                    std::cerr << "Dosshell: '" << t << "' ist nicht leer. Verwende 'rm -r'.\n";
+                    return 1;
+                }
+                auto count = fs::remove_all(p);
+                if (recursive) std::cout << count << " Eintraege entfernt.\n";
+            } else {
+                fs::remove(p);
+                std::cout << "Geloescht: " << t << "\n";
             }
-            if (fs::remove(target)) std::cout << "Geloescht: " << args[i] << "\n";
         } catch (const std::exception& e) {
             std::cerr << "Dosshell: " << e.what() << "\n";
             return 1;
@@ -266,11 +263,11 @@ int Builtins::cmd_del(Shell&, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// ren
+// mv
 // ============================================================
-int Builtins::cmd_ren(Shell&, const std::vector<std::string>& args) {
+int Builtins::cmd_mv(Shell&, const std::vector<std::string>& args) {
     if (args.size() < 3) {
-        std::cerr << "Syntax: ren <alter_name> <neuer_name>\n";
+        std::cerr << "Syntax: mv <alt> <neu>\n";
         return 1;
     }
     try {
@@ -283,11 +280,11 @@ int Builtins::cmd_ren(Shell&, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// md
+// mk
 // ============================================================
-int Builtins::cmd_md(Shell&, const std::vector<std::string>& args) {
+int Builtins::cmd_mk(Shell&, const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cerr << "Syntax: md <verzeichnis>\n";
+        std::cerr << "Syntax: mk <verzeichnis>\n";
         return 1;
     }
     try {
@@ -300,113 +297,9 @@ int Builtins::cmd_md(Shell&, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// rd
+// set — Umgebungsvariablen
 // ============================================================
-int Builtins::cmd_rd(Shell&, const std::vector<std::string>& args) {
-    if (args.size() < 2) {
-        std::cerr << "Syntax: rd <verzeichnis>\n";
-        return 1;
-    }
-    bool recursive = false;
-    for (size_t i = 1; i < args.size(); i++) {
-        if (args[i] == "/s" || args[i] == "-r") { recursive = true; continue; }
-        try {
-            if (recursive) {
-                auto count = fs::remove_all(args[i]);
-                std::cout << count << " Eintraege entfernt.\n";
-            } else {
-                if (!fs::is_directory(args[i])) {
-                    std::cerr << "Dosshell: '" << args[i] << "' ist kein Verzeichnis\n";
-                    return 1;
-                }
-                if (!fs::is_empty(args[i])) {
-                    std::cerr << "Dosshell: Verzeichnis nicht leer. Verwende 'rd /s'.\n";
-                    return 1;
-                }
-                fs::remove(args[i]);
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "Dosshell: " << e.what() << "\n";
-            return 1;
-        }
-    }
-    return 0;
-}
-
-// ============================================================
-// set (mit /a fuer Mathe und /p fuer Eingabe)
-// ============================================================
-namespace MathParser {
-    static void skipWS(const std::string& s, size_t& p) {
-        while (p < s.size() && std::isspace((unsigned char)s[p])) p++;
-    }
-
-    static double parseExpr(const std::string& s, size_t& p);
-
-    static double parseAtom(const std::string& s, size_t& p) {
-        skipWS(s, p);
-        if (p < s.size() && s[p] == '(') {
-            p++;
-            double val = parseExpr(s, p);
-            skipWS(s, p);
-            if (p < s.size() && s[p] == ')') p++;
-            return val;
-        }
-        bool neg = false;
-        if (p < s.size() && (s[p] == '-' || s[p] == '+')) {
-            neg = (s[p] == '-');
-            p++;
-            skipWS(s, p);
-        }
-        size_t start = p;
-        while (p < s.size() && (std::isdigit((unsigned char)s[p]) || s[p] == '.'))
-            p++;
-        double val = (p > start) ? std::stod(s.substr(start, p - start)) : 0.0;
-        return neg ? -val : val;
-    }
-
-    static double parseMulDiv(const std::string& s, size_t& p) {
-        double left = parseAtom(s, p);
-        while (true) {
-            skipWS(s, p);
-            if (p >= s.size()) break;
-            char op = s[p];
-            if (op != '*' && op != '/' && op != '%') break;
-            p++;
-            double right = parseAtom(s, p);
-            if (op == '*') left *= right;
-            else if (op == '/') left = (right != 0) ? left / right : 0;
-            else left = std::fmod(left, right);
-        }
-        return left;
-    }
-
-    static double parseExpr(const std::string& s, size_t& p) {
-        double left = parseMulDiv(s, p);
-        while (true) {
-            skipWS(s, p);
-            if (p >= s.size()) break;
-            char op = s[p];
-            if (op != '+' && op != '-') break;
-            p++;
-            double right = parseMulDiv(s, p);
-            if (op == '+') left += right;
-            else left -= right;
-        }
-        return left;
-    }
-
-    static std::string format(double result) {
-        std::ostringstream oss;
-        if (result == std::floor(result) && std::abs(result) < 1e15)
-            oss << static_cast<long long>(result);
-        else
-            oss << result;
-        return oss.str();
-    }
-}
-
-int Builtins::cmd_set(Shell& shell, const std::vector<std::string>& args) {
+int Builtins::cmd_set(Shell&, const std::vector<std::string>& args) {
     if (args.size() < 2) {
         LPCH env = GetEnvironmentStringsA();
         if (env) {
@@ -420,61 +313,6 @@ int Builtins::cmd_set(Shell& shell, const std::vector<std::string>& args) {
         return 0;
     }
 
-    // set /a — Mathe-Ausdruck auswerten
-    if (args[1] == "/a" || args[1] == "/A") {
-        if (args.size() < 3) {
-            std::cerr << "Syntax: set /a <ausdruck>\n";
-            std::cerr << "Beispiel: set /a 3 + 4 * 2\n";
-            return 1;
-        }
-        std::string expr;
-        for (size_t i = 2; i < args.size(); i++) {
-            if (i > 2) expr += " ";
-            expr += args[i];
-        }
-        // Optionale Variablenzuweisung: set /a X=3+4
-        std::string varName = "RESULT";
-        auto eqPos = expr.find('=');
-        if (eqPos != std::string::npos && eqPos > 0 &&
-            std::isalpha((unsigned char)expr[0])) {
-            varName = expr.substr(0, eqPos);
-            expr = expr.substr(eqPos + 1);
-        }
-        size_t pos = 0;
-        double result = MathParser::parseExpr(expr, pos);
-        std::string formatted = MathParser::format(result);
-        std::cout << formatted << "\n";
-        _putenv_s(varName.c_str(), formatted.c_str());
-        return 0;
-    }
-
-    // set /p — Benutzereingabe in Variable
-    if (args[1] == "/p" || args[1] == "/P") {
-        if (args.size() < 3) {
-            std::cerr << "Syntax: set /p VARIABLE=Prompt\n";
-            return 1;
-        }
-        std::string rest;
-        for (size_t i = 2; i < args.size(); i++) {
-            if (i > 2) rest += " ";
-            rest += args[i];
-        }
-        auto eqPos = rest.find('=');
-        std::string varName;
-        std::string prompt;
-        if (eqPos != std::string::npos) {
-            varName = rest.substr(0, eqPos);
-            prompt = rest.substr(eqPos + 1);
-        } else {
-            varName = rest;
-        }
-        if (!prompt.empty()) prompt += " ";
-        std::string value = shell.console().readLine(prompt);
-        _putenv_s(varName.c_str(), value.c_str());
-        return 0;
-    }
-
-    // Normaler set-Befehl
     std::string assignment;
     for (size_t i = 1; i < args.size(); i++) {
         if (i > 1) assignment += " ";
@@ -499,16 +337,6 @@ int Builtins::cmd_set(Shell& shell, const std::vector<std::string>& args) {
 }
 
 // ============================================================
-// ver
-// ============================================================
-int Builtins::cmd_ver(Shell&, const std::vector<std::string>&) {
-    std::cout << "\nDosshell [Version 0.0.1]\n";
-    std::cout << "Eine moderne Shell mit DOS-Feeling.\n";
-    std::cout << "Inspiriert von PowerShell, gebaut in C++20.\n\n";
-    return 0;
-}
-
-// ============================================================
 // help
 // ============================================================
 int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
@@ -519,30 +347,29 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
 
         struct HelpEntry { const char* name; const char* desc; const char* syntax; };
         static const HelpEntry entries[] = {
-            {"dir",     "Zeigt Verzeichnisinhalt an",       "dir [pfad] [/a] [/w]"},
-            {"cd",      "Wechselt das Verzeichnis",         "cd [pfad]"},
-            {"cls",     "Loescht den Bildschirm",           "cls"},
-            {"echo",    "Gibt Text aus",                    "echo [text]"},
-            {"type",    "Zeigt Dateiinhalt an",             "type <datei> [datei2 ...]"},
-            {"copy",    "Kopiert eine Datei",               "copy <quelle> <ziel>"},
-            {"del",     "Loescht eine Datei",               "del <datei> [/f]"},
-            {"ren",     "Benennt eine Datei um",            "ren <alt> <neu>"},
-            {"md",      "Erstellt ein Verzeichnis",         "md <verzeichnis>"},
-            {"rd",      "Loescht ein Verzeichnis",          "rd <verzeichnis> [/s]"},
-            {"set",     "Umgebungsvariablen/Mathe/Eingabe", "set [name=wert] | set /a <expr> | set /p VAR=Prompt"},
-            {"ver",     "Zeigt die Version an",             "ver"},
-            {"color",   "Setzt Konsolenfarben",             "color <fg> [bg]"},
-            {"title",   "Setzt den Fenstertitel",           "title <text>"},
-            {"prompt",  "Setzt das Prompt-Format",          "prompt [format]"},
-            {"alias",   "Definiert einen Alias",            "alias [name=befehl]"},
-            {"pwd",     "Zeigt aktuelles Verzeichnis",      "pwd"},
-            {"time",    "Zeigt die aktuelle Zeit",          "time"},
-            {"date",    "Zeigt das aktuelle Datum",         "date"},
-            {"exit",    "Beendet Dosshell",                 "exit [code]"},
-            {"load",    "Laedt eine .ini-Bibliothek",       "load [name]"},
-            {"plugin",  "Laedt ein C++ DLL-Plugin",         "plugin <name|pfad>"},
-            {"call",    "Fuehrt ein .dssh Script aus",      "call <script.dssh> [argumente...]"},
-            {"pause",   "Wartet auf Tastendruck",           "pause"},
+            {"ls",      "Dateien und Ordner auflisten",     "ls [pfad] [-a] [-w]"},
+            {"cd",      "Verzeichnis wechseln/anzeigen",    "cd [pfad]"},
+            {"cat",     "Dateiinhalt anzeigen",             "cat <datei> [datei2 ...]"},
+            {"cp",      "Datei kopieren",                   "cp <quelle> <ziel>"},
+            {"mv",      "Datei verschieben/umbenennen",     "mv <alt> <neu>"},
+            {"rm",      "Datei oder Ordner loeschen",       "rm <ziel> [-r]"},
+            {"mk",      "Ordner erstellen",                 "mk <verzeichnis>"},
+            {"echo",    "Text ausgeben",                    "echo [text]"},
+            {"input",   "Eingabe in Variable lesen",        "input <variable> [prompt]"},
+            {"clear",   "Bildschirm loeschen",              "clear"},
+            {"pause",   "Auf Tastendruck warten",           "pause"},
+            {"set",     "Umgebungsvariablen verwalten",     "set [name=wert]"},
+            {"math",    "Mathematik berechnen",             "math <ausdruck>  (+ - * / %)"},
+            {"color",   "Konsolenfarben setzen",            "color <fg> [bg]"},
+            {"title",   "Fenstertitel setzen",              "title <text>"},
+            {"prompt",  "Prompt-Format aendern",            "prompt [format]  ($P $G $D $T)"},
+            {"alias",   "Alias definieren",                 "alias [name=befehl]"},
+            {"time",    "Aktuelle Zeit anzeigen",           "time"},
+            {"date",    "Aktuelles Datum anzeigen",         "date"},
+            {"exit",    "Dosshell beenden",                 "exit [code]"},
+            {"call",    ".dssh Script ausfuehren",          "call <script.dssh> [argumente...]"},
+            {"load",    ".ini-Bibliothek laden",            "load [name]"},
+            {"plugin",  "C++ DLL-Plugin laden",             "plugin <name|pfad>"},
         };
 
         for (const auto& e : entries) {
@@ -556,26 +383,26 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
         return 1;
     }
 
-    std::cout << "\n";
-    std::cout << "Dosshell - Verfuegbare Befehle:\n";
-    std::cout << "================================\n\n";
-    std::cout << "  dir     - Verzeichnisinhalt anzeigen     set     - Umgebungsvariablen\n";
-    std::cout << "  cd      - Verzeichnis wechseln           ver     - Version anzeigen\n";
-    std::cout << "  cls     - Bildschirm loeschen            color   - Farben setzen\n";
-    std::cout << "  echo    - Text ausgeben                  title   - Fenstertitel setzen\n";
-    std::cout << "  type    - Dateiinhalt anzeigen           prompt  - Prompt aendern\n";
-    std::cout << "  copy    - Datei kopieren                 alias   - Alias definieren\n";
-    std::cout << "  del     - Datei loeschen                 pwd     - Aktuelles Verzeichnis\n";
-    std::cout << "  ren     - Datei umbenennen               time    - Aktuelle Zeit\n";
-    std::cout << "  md      - Verzeichnis erstellen          date    - Aktuelles Datum\n";
-    std::cout << "  rd      - Verzeichnis loeschen           exit    - Dosshell beenden\n";
-    std::cout << "  load    - .ini-Bibliothek laden          plugin  - C++ DLL-Plugin laden\n";
-    std::cout << "  call    - .dssh Script ausfuehren        pause   - Auf Taste warten\n\n";
+    std::cout << "\nDosshell v0.0.1 - Eine moderne Shell\n";
+    std::cout << "====================================\n\n";
+    std::cout << "  Dateien          I/O              Shell\n";
+    std::cout << "  ------           ---              -----\n";
+    std::cout << "  ls   Auflisten   echo  Ausgabe    color  Farben\n";
+    std::cout << "  cd   Wechseln    input Eingabe    title  Titel\n";
+    std::cout << "  cat  Anzeigen    clear Loeschen   prompt Format\n";
+    std::cout << "  cp   Kopieren    pause Warten     alias  Kuerzel\n";
+    std::cout << "  mv   Verschieben                  time   Zeit\n";
+    std::cout << "  rm   Loeschen    Variablen        date   Datum\n";
+    std::cout << "  mk   Erstellen   ---------        exit   Beenden\n";
+    std::cout << "                   set   Variablen  help   Hilfe\n";
+    std::cout << "  Scripting        math  Rechnen\n";
+    std::cout << "  ---------\n";
+    std::cout << "  call   .dssh Script\n";
+    std::cout << "  load   .ini Bibliothek\n";
+    std::cout << "  plugin DLL Plugin\n\n";
     std::cout << "Tippe 'help <befehl>' fuer Details.\n";
-    std::cout << "Externe Programme werden automatisch gesucht.\n";
-    std::cout << ".dssh Scripte koennen direkt aufgerufen werden (wie .bat fuer CMD).\n";
-    std::cout << "Pipes (|), Umleitung (> >> <) und && werden unterstuetzt.\n";
-    std::cout << "Umgebungsvariablen: %VARNAME%\n";
+    std::cout << ".dssh Scripte werden per Name automatisch gefunden.\n";
+    std::cout << "Pipes (|), Umleitung (> >> <), && und %VARIABLEN% verfuegbar.\n";
 
     // Script-Befehle anzeigen
     const auto& scripts = shell.engine().scriptCommands();
@@ -719,14 +546,6 @@ int Builtins::cmd_alias(Shell& shell, const std::vector<std::string>& args) {
         std::cerr << "Syntax: alias name=befehl\n";
         return 1;
     }
-    return 0;
-}
-
-// ============================================================
-// pwd
-// ============================================================
-int Builtins::cmd_pwd(Shell&, const std::vector<std::string>&) {
-    std::cout << fs::current_path().string() << "\n";
     return 0;
 }
 
@@ -1160,6 +979,106 @@ int Builtins::cmd_pause(Shell& shell, const std::vector<std::string>&) {
 
     SetConsoleMode(hStdin, oldMode);
     shell.console().writeLine("");
+    return 0;
+}
+
+// ============================================================
+// math — Ausdruecke berechnen
+// ============================================================
+namespace MathParser {
+    static void skipWS(const std::string& s, size_t& p) {
+        while (p < s.size() && std::isspace((unsigned char)s[p])) p++;
+    }
+    static double parseExpr(const std::string& s, size_t& p);
+    static double parseAtom(const std::string& s, size_t& p) {
+        skipWS(s, p);
+        if (p < s.size() && s[p] == '(') {
+            p++;
+            double val = parseExpr(s, p);
+            skipWS(s, p);
+            if (p < s.size() && s[p] == ')') p++;
+            return val;
+        }
+        bool neg = false;
+        if (p < s.size() && (s[p] == '-' || s[p] == '+')) {
+            neg = (s[p] == '-'); p++;
+            skipWS(s, p);
+        }
+        size_t start = p;
+        while (p < s.size() && (std::isdigit((unsigned char)s[p]) || s[p] == '.')) p++;
+        double val = (p > start) ? std::stod(s.substr(start, p - start)) : 0.0;
+        return neg ? -val : val;
+    }
+    static double parseMulDiv(const std::string& s, size_t& p) {
+        double left = parseAtom(s, p);
+        while (true) {
+            skipWS(s, p);
+            if (p >= s.size()) break;
+            char op = s[p];
+            if (op != '*' && op != '/' && op != '%') break;
+            p++;
+            double right = parseAtom(s, p);
+            if (op == '*') left *= right;
+            else if (op == '/') left = (right != 0) ? left / right : 0;
+            else left = std::fmod(left, right);
+        }
+        return left;
+    }
+    static double parseExpr(const std::string& s, size_t& p) {
+        double left = parseMulDiv(s, p);
+        while (true) {
+            skipWS(s, p);
+            if (p >= s.size()) break;
+            char op = s[p];
+            if (op != '+' && op != '-') break;
+            p++;
+            double right = parseMulDiv(s, p);
+            if (op == '+') left += right; else left -= right;
+        }
+        return left;
+    }
+}
+
+int Builtins::cmd_math(Shell&, const std::vector<std::string>& args) {
+    if (args.size() < 2) {
+        std::cerr << "Syntax: math <ausdruck>\n";
+        std::cerr << "Beispiel: math 3 + 4 * (2 - 1)\n";
+        return 1;
+    }
+    std::string expr;
+    for (size_t i = 1; i < args.size(); i++) {
+        if (i > 1) expr += " ";
+        expr += args[i];
+    }
+    size_t pos = 0;
+    double result = MathParser::parseExpr(expr, pos);
+    std::ostringstream oss;
+    if (result == std::floor(result) && std::abs(result) < 1e15)
+        oss << static_cast<long long>(result);
+    else
+        oss << result;
+    std::cout << oss.str() << "\n";
+    _putenv_s("RESULT", oss.str().c_str());
+    return 0;
+}
+
+// ============================================================
+// input — Eingabe in Variable
+// ============================================================
+int Builtins::cmd_input(Shell& shell, const std::vector<std::string>& args) {
+    if (args.size() < 2) {
+        std::cerr << "Syntax: input <variable> [prompt]\n";
+        return 1;
+    }
+    std::string varName = args[1];
+    std::string prompt;
+    for (size_t i = 2; i < args.size(); i++) {
+        if (i > 2) prompt += " ";
+        prompt += args[i];
+    }
+    if (!prompt.empty()) prompt += " ";
+    std::string value = shell.console().readLine(prompt);
+    _putenv_s(varName.c_str(), value.c_str());
     return 0;
 }
 
