@@ -1,8 +1,10 @@
 #include "builtins.h"
 #include "shell.h"
+#include "script.h"
 #include "dosshell_plugin.h"
 #include <windows.h>
 #include <aclapi.h>
+#include <shlobj.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -50,6 +52,10 @@ void registerAllBuiltins(PipelineEngine& engine) {
     engine.registerBuiltin("date",    Builtins::cmd_date);
     engine.registerBuiltin("load",    Builtins::cmd_load);
     engine.registerBuiltin("plugin",  Builtins::cmd_plugin);
+    engine.registerBuiltin("call",    Builtins::cmd_call);
+    engine.registerBuiltin("pause",   Builtins::cmd_pause);
+    engine.registerBuiltin("register", Builtins::cmd_register);
+    engine.registerBuiltin("unregister", Builtins::cmd_unregister);
 }
 
 // ============================================================
@@ -412,6 +418,10 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
             {"exit",    "Beendet Dosshell",                 "exit [code]"},
             {"load",    "Laedt eine .ini-Bibliothek",       "load [name]"},
             {"plugin",  "Laedt ein C++ DLL-Plugin",         "plugin <name|pfad>"},
+            {"call",    "Fuehrt ein .dssh Script aus",      "call <script.dssh> [argumente...]"},
+            {"pause",   "Wartet auf Tastendruck",           "pause"},
+            {"register","Registriert .dssh als Dateityp",   "register"},
+            {"unregister","Entfernt .dssh Dateityp",        "unregister"},
         };
 
         for (const auto& e : entries) {
@@ -438,9 +448,12 @@ int Builtins::cmd_help(Shell& shell, const std::vector<std::string>& args) {
     std::cout << "  ren     - Datei umbenennen               time    - Aktuelle Zeit\n";
     std::cout << "  md      - Verzeichnis erstellen          date    - Aktuelles Datum\n";
     std::cout << "  rd      - Verzeichnis loeschen           exit    - Dosshell beenden\n";
-    std::cout << "  load    - .ini-Bibliothek laden          plugin  - C++ DLL-Plugin laden\n\n";
+    std::cout << "  load    - .ini-Bibliothek laden          plugin  - C++ DLL-Plugin laden\n";
+    std::cout << "  call    - .dssh Script ausfuehren        pause   - Auf Taste warten\n";
+    std::cout << "  register- .dssh Dateityp registrieren   unregister - Dateityp entfernen\n\n";
     std::cout << "Tippe 'help <befehl>' fuer Details.\n";
     std::cout << "Externe Programme werden automatisch gesucht.\n";
+    std::cout << ".dssh Scripte koennen direkt aufgerufen werden (wie .bat fuer CMD).\n";
     std::cout << "Pipes (|), Umleitung (> >> <) und && werden unterstuetzt.\n";
     std::cout << "Umgebungsvariablen: %VARNAME%\n";
 
@@ -983,5 +996,269 @@ int Builtins::cmd_plugin(Shell& shell, const std::vector<std::string>& args) {
     g_pluginShell = nullptr;
 
     std::cout << "Plugin '" << dllPath.filename().string() << "' geladen.\n";
+    return 0;
+}
+
+// ============================================================
+// call
+// ============================================================
+int Builtins::cmd_call(Shell& shell, const std::vector<std::string>& args) {
+    if (args.size() < 2) {
+        std::cerr << "Syntax: call <script.dssh> [argumente...]\n";
+        return 1;
+    }
+
+    std::string scriptPath = ScriptRunner::findScript(args[1]);
+    if (scriptPath.empty()) {
+        std::cerr << "Dosshell: Script '" << args[1] << "' nicht gefunden\n";
+        return 1;
+    }
+
+    // Args weiterreichen: args[1]=Scriptname, args[2..]=Parameter
+    std::vector<std::string> scriptArgs(args.begin() + 1, args.end());
+    return ScriptRunner::execute(shell, scriptPath, scriptArgs);
+}
+
+// ============================================================
+// pause
+// ============================================================
+int Builtins::cmd_pause(Shell& shell, const std::vector<std::string>&) {
+    shell.console().write("Druecke eine beliebige Taste . . . ");
+
+    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD oldMode;
+    GetConsoleMode(hStdin, &oldMode);
+    SetConsoleMode(hStdin, ENABLE_WINDOW_INPUT);
+
+    INPUT_RECORD ir;
+    DWORD read;
+    while (true) {
+        ReadConsoleInputA(hStdin, &ir, 1, &read);
+        if (ir.EventType == KEY_EVENT && ir.Event.KeyEvent.bKeyDown)
+            break;
+    }
+
+    SetConsoleMode(hStdin, oldMode);
+    shell.console().writeLine("");
+    return 0;
+}
+
+// ============================================================
+// register / unregister — .dssh Dateityp in Windows
+// ============================================================
+
+static bool generateDsshIcon(const std::string& iconPath) {
+    // 32x32 Terminal-Style Icon fuer .dssh Dateien generieren
+    struct BGRA { uint8_t b, g, r, a; };
+
+    BGRA pixels[32][32];
+
+    // Farben
+    BGRA transparent = {0, 0, 0, 0};
+    BGRA border      = {66, 52, 50, 255};        // RGB(50, 52, 66)
+    BGRA titleBar    = {54, 42, 40, 255};         // RGB(40, 42, 54)
+    BGRA darkBg      = {30, 22, 20, 255};         // RGB(20, 22, 30)
+    BGRA redDot      = {86, 95, 255, 255};        // RGB(255, 95, 86)
+    BGRA yellowDot   = {46, 189, 255, 255};       // RGB(255, 189, 46)
+    BGRA greenDot    = {63, 201, 39, 255};        // RGB(39, 201, 63)
+    BGRA promptGreen = {123, 250, 80, 255};       // RGB(80, 250, 123)
+    BGRA cursorWhite = {220, 200, 200, 255};      // RGB(200, 200, 220)
+
+    // Alles mit dunklem Hintergrund fuellen
+    for (int r = 0; r < 32; r++)
+        for (int c = 0; c < 32; c++)
+            pixels[r][c] = darkBg;
+
+    // Rahmen
+    for (int c = 0; c < 32; c++) { pixels[0][c] = border; pixels[31][c] = border; }
+    for (int r = 0; r < 32; r++) { pixels[r][0] = border; pixels[r][31] = border; }
+
+    // Ecken transparent (abgerundet)
+    pixels[0][0] = transparent; pixels[0][1] = transparent;
+    pixels[0][30] = transparent; pixels[0][31] = transparent;
+    pixels[1][0] = transparent; pixels[31][0] = transparent;
+    pixels[31][31] = transparent; pixels[31][30] = transparent;
+    pixels[31][0] = transparent; pixels[31][1] = transparent;
+    pixels[30][0] = transparent; pixels[30][31] = transparent;
+
+    // Titelleiste (Zeilen 1-3)
+    for (int r = 1; r <= 3; r++)
+        for (int c = 1; c <= 30; c++)
+            pixels[r][c] = titleBar;
+
+    // Trennlinie
+    for (int c = 1; c <= 30; c++)
+        pixels[4][c] = border;
+
+    // Fenster-Punkte in Titelleiste (Zeile 2)
+    pixels[2][3] = redDot;    pixels[2][4] = redDot;
+    pixels[2][6] = yellowDot; pixels[2][7] = yellowDot;
+    pixels[2][9] = greenDot;  pixels[2][10] = greenDot;
+
+    // Gruenes ">" Prompt-Zeichen
+    auto setBlock = [&](int r, int c1, int c2, BGRA color) {
+        for (int c = c1; c <= c2; c++) pixels[r][c] = color;
+    };
+    setBlock(11, 5, 7, promptGreen);
+    setBlock(12, 7, 9, promptGreen);
+    setBlock(13, 9, 11, promptGreen);
+    setBlock(14, 11, 13, promptGreen);
+    setBlock(15, 9, 11, promptGreen);
+    setBlock(16, 7, 9, promptGreen);
+    setBlock(17, 5, 7, promptGreen);
+
+    // Weisser "_" Cursor
+    setBlock(21, 16, 23, cursorWhite);
+    setBlock(22, 16, 23, cursorWhite);
+
+    // ICO-Datei schreiben
+    std::ofstream out(iconPath, std::ios::binary);
+    if (!out.is_open()) return false;
+
+    // ICO Header (6 Bytes)
+    uint16_t reserved = 0, type = 1, count = 1;
+    out.write((char*)&reserved, 2);
+    out.write((char*)&type, 2);
+    out.write((char*)&count, 2);
+
+    // Directory Entry (16 Bytes)
+    uint8_t width = 32, height = 32, colorPalette = 0, reservedByte = 0;
+    uint16_t planes = 1, bpp = 32;
+    uint32_t imageSize = 40 + (32 * 32 * 4) + (32 * 4); // BMP Header + Pixel + AND-Maske
+    uint32_t imageOffset = 6 + 16;
+
+    out.write((char*)&width, 1);
+    out.write((char*)&height, 1);
+    out.write((char*)&colorPalette, 1);
+    out.write((char*)&reservedByte, 1);
+    out.write((char*)&planes, 2);
+    out.write((char*)&bpp, 2);
+    out.write((char*)&imageSize, 4);
+    out.write((char*)&imageOffset, 4);
+
+    // BMP Info Header (40 Bytes)
+    uint32_t headerSize = 40;
+    int32_t bmpWidth = 32, bmpHeight = 64; // Doppelte Hoehe fuer ICO
+    uint16_t bmpPlanes = 1, bmpBpp = 32;
+    uint32_t compression = 0, imgDataSize = 32 * 32 * 4;
+    uint32_t zero = 0;
+
+    out.write((char*)&headerSize, 4);
+    out.write((char*)&bmpWidth, 4);
+    out.write((char*)&bmpHeight, 4);
+    out.write((char*)&bmpPlanes, 2);
+    out.write((char*)&bmpBpp, 2);
+    out.write((char*)&compression, 4);
+    out.write((char*)&imgDataSize, 4);
+    out.write((char*)&zero, 4); // X ppm
+    out.write((char*)&zero, 4); // Y ppm
+    out.write((char*)&zero, 4); // Colors used
+    out.write((char*)&zero, 4); // Important colors
+
+    // Pixeldaten (Bottom-Up: Zeile 31 zuerst)
+    for (int r = 31; r >= 0; r--)
+        for (int c = 0; c < 32; c++)
+            out.write((char*)&pixels[r][c], 4);
+
+    // AND-Maske (alles 0 = opak, Alpha regelt Transparenz)
+    uint8_t andMask[32 * 4] = {};
+    out.write((char*)andMask, sizeof(andMask));
+
+    out.close();
+    return true;
+}
+
+int Builtins::cmd_register(Shell& shell, const std::vector<std::string>&) {
+    // Pfad zur aktuellen dosshell.exe
+    char exeBuf[MAX_PATH];
+    GetModuleFileNameA(nullptr, exeBuf, MAX_PATH);
+    std::string exePath = exeBuf;
+
+    // .dosshell Verzeichnis anlegen
+    std::string dsshDir = getDosshellDir();
+    if (dsshDir.empty()) {
+        std::cerr << "Dosshell: USERPROFILE nicht gesetzt\n";
+        return 1;
+    }
+    fs::create_directories(dsshDir);
+
+    // Icon generieren
+    std::string iconPath = dsshDir + "\\dssh.ico";
+    if (!generateDsshIcon(iconPath)) {
+        std::cerr << "Dosshell: Icon konnte nicht erstellt werden\n";
+        return 1;
+    }
+
+    shell.console().writeColored("Registriere .dssh Dateityp...\n", Color::Cyan);
+
+    HKEY hKey;
+    LONG result;
+
+    // .dssh -> DosshellScript
+    result = RegCreateKeyExA(HKEY_CURRENT_USER, "Software\\Classes\\.dssh",
+                             0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    if (result != ERROR_SUCCESS) {
+        std::cerr << "Dosshell: Registry-Fehler " << result << "\n";
+        return 1;
+    }
+    const char* progId = "DosshellScript";
+    RegSetValueExA(hKey, nullptr, 0, REG_SZ, (const BYTE*)progId,
+                   (DWORD)strlen(progId) + 1);
+    RegCloseKey(hKey);
+
+    // DosshellScript ProgID
+    RegCreateKeyExA(HKEY_CURRENT_USER, "Software\\Classes\\DosshellScript",
+                    0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    const char* typeName = "Dosshell Script";
+    RegSetValueExA(hKey, nullptr, 0, REG_SZ, (const BYTE*)typeName,
+                   (DWORD)strlen(typeName) + 1);
+    RegCloseKey(hKey);
+
+    // DefaultIcon
+    RegCreateKeyExA(HKEY_CURRENT_USER,
+                    "Software\\Classes\\DosshellScript\\DefaultIcon",
+                    0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    RegSetValueExA(hKey, nullptr, 0, REG_SZ, (const BYTE*)iconPath.c_str(),
+                   (DWORD)iconPath.size() + 1);
+    RegCloseKey(hKey);
+
+    // shell\open\command
+    RegCreateKeyExA(HKEY_CURRENT_USER,
+                    "Software\\Classes\\DosshellScript\\shell\\open\\command",
+                    0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr);
+    std::string cmd = "\"" + exePath + "\" \"%1\" %*";
+    RegSetValueExA(hKey, nullptr, 0, REG_SZ, (const BYTE*)cmd.c_str(),
+                   (DWORD)cmd.size() + 1);
+    RegCloseKey(hKey);
+
+    // Explorer benachrichtigen
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+
+    shell.console().writeColored("  .dssh Dateityp registriert!\n", Color::Green);
+    std::cout << "  Icon:    " << iconPath << "\n";
+    std::cout << "  Shell:   " << exePath << "\n";
+    std::cout << "\n";
+    std::cout << "  .dssh Dateien koennen jetzt per Doppelklick gestartet werden.\n";
+    std::cout << "  Tipp: 'pause' am Ende des Scripts haelt das Fenster offen.\n";
+
+    return 0;
+}
+
+int Builtins::cmd_unregister(Shell& shell, const std::vector<std::string>&) {
+    shell.console().writeColored("Entferne .dssh Dateityp...\n", Color::Cyan);
+
+    RegDeleteTreeA(HKEY_CURRENT_USER, "Software\\Classes\\.dssh");
+    RegDeleteTreeA(HKEY_CURRENT_USER, "Software\\Classes\\DosshellScript");
+
+    // Icon loeschen
+    std::string dsshDir = getDosshellDir();
+    if (!dsshDir.empty()) {
+        fs::path iconPath = fs::path(dsshDir) / "dssh.ico";
+        if (fs::exists(iconPath)) fs::remove(iconPath);
+    }
+
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+
+    shell.console().writeColored("  .dssh Dateityp entfernt.\n", Color::Green);
     return 0;
 }

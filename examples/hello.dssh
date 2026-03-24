@@ -1,0 +1,25 @@
+@echo off
+REM ============================================
+REM Beispiel .dssh Script fuer Dosshell
+REM Aufruf: hello.dssh [Name]
+REM ============================================
+
+; Begruessung
+echo ================================
+echo   Willkommen bei Dosshell!
+echo ================================
+
+; Parameter pruefen
+echo Script: %0
+echo Argument: %1
+echo Alle Argumente: %*
+
+; Systembefehle nutzen
+echo.
+echo Aktuelles Verzeichnis:
+pwd
+echo.
+date
+time
+echo.
+pause

@@ -15,6 +15,7 @@ set(SOURCES
     src/pipeline.cpp
     src/builtins.cpp
     src/console.cpp
+    src/script.cpp
 )
 
 set(HEADERS
@@ -24,6 +25,7 @@ set(HEADERS
     src/builtins.h
     src/console.h
     src/dosshell_plugin.h
+    src/script.h
 )
 
 add_executable(dosshell ${SOURCES} ${HEADERS})

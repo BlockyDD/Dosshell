@@ -29,4 +29,8 @@ namespace Builtins {
     int cmd_date(Shell& shell, const std::vector<std::string>& args);
     int cmd_load(Shell& shell, const std::vector<std::string>& args);
     int cmd_plugin(Shell& shell, const std::vector<std::string>& args);
+    int cmd_call(Shell& shell, const std::vector<std::string>& args);
+    int cmd_pause(Shell& shell, const std::vector<std::string>& args);
+    int cmd_register(Shell& shell, const std::vector<std::string>& args);
+    int cmd_unregister(Shell& shell, const std::vector<std::string>& args);
 }

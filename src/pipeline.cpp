@@ -1,5 +1,6 @@
 #include "pipeline.h"
 #include "shell.h"
+#include "script.h"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -238,9 +239,18 @@ int PipelineEngine::executeCommand(Shell& shell, const Command& cmd,
         fullArgs.insert(fullArgs.end(), cmd.args.begin(), cmd.args.end());
         result = executeScriptCommand(shell, normalizedName, fullArgs);
     } else {
-        Command resolvedCmd = cmd;
-        resolvedCmd.name = resolvedName;
-        result = executeExternal(resolvedCmd, hStdin, hStdout);
+        // .dssh Script-Datei suchen
+        std::string scriptPath = ScriptRunner::findScript(resolvedName);
+        if (!scriptPath.empty()) {
+            std::vector<std::string> scriptArgs;
+            scriptArgs.push_back(resolvedName);
+            scriptArgs.insert(scriptArgs.end(), cmd.args.begin(), cmd.args.end());
+            result = ScriptRunner::execute(shell, scriptPath, scriptArgs);
+        } else {
+            Command resolvedCmd = cmd;
+            resolvedCmd.name = resolvedName;
+            result = executeExternal(resolvedCmd, hStdin, hStdout);
+        }
     }
 
     if (hFileIn != INVALID_HANDLE_VALUE) CloseHandle(hFileIn);

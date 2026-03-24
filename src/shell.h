@@ -9,6 +9,7 @@ public:
     Shell();
 
     int run();
+    int runScript(const std::string& path, const std::vector<std::string>& args);
 
     Console& console() { return console_; }
     PipelineEngine& engine() { return engine_; }

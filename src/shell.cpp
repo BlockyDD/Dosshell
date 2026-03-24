@@ -1,5 +1,6 @@
 #include "shell.h"
 #include "builtins.h"
+#include "script.h"
 #include <filesystem>
 #include <chrono>
 #include <ctime>
@@ -107,6 +108,10 @@ std::string Shell::getPrompt() const {
 void Shell::quit(int exitCode) {
     running_ = false;
     lastExitCode_ = exitCode;
+}
+
+int Shell::runScript(const std::string& path, const std::vector<std::string>& args) {
+    return ScriptRunner::execute(*this, path, args);
 }
 
 int Shell::run() {
