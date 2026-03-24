@@ -34,4 +34,5 @@ private:
     std::string promptFormat_ = "$P$G";
 
     void showBanner();
+    void autoRegisterDssh();
 };
